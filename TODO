@@ -1,0 +1,19 @@
+Sensitivities: 
+- code gamma /delta/vega/tetha cash 
+
+Quant: 
+- SSVI Calibration -> Implement it into MarketLoader
+- PriceTimeSerie (garch)
+- SSVITimeSerie (MA on implied volatility time series (fix strike and fix mat))
+
+Margin: 
+- Code RiskMatrix 
+
+Trade: 
+- datetime 
+- instrument 
+- quantity 
+
+Portfolio: 
+- list of Trades 
+- MarketLoader
