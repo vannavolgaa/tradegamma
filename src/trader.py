@@ -145,7 +145,8 @@ class Trade:
 
 @dataclass
 class Portfolio: 
-    pass 
+    trades : List[Trade] 
+
 
 @dataclass
 class GammaTrader: 
