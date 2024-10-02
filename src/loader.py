@@ -4,7 +4,6 @@ import pandas as pd
 import math 
 from datetime import datetime, timedelta
 import numpy as np 
-import scipy.interpolate
 import matplotlib.pyplot as plt 
 from src.instruments import (
     Instrument, 
@@ -18,17 +17,14 @@ from src.instruments import (
     RiskFactor, 
     Sensitivities
 )
-from src.quant.ssvi import SSVI, CalibrateSSVI
 from src.quant.timeserie import TimeSerie
 from src.tools import update_dict_of_list
-from src.market2 import (
-    Market, 
-    VolatilitySurface, 
-    FutureTermStructure)
+from src.market import Market
+from src.parameters import BacktestParameters
      
 class MarketLoader: 
-    def __init__(self, n:int, do_market_processing:bool = True) -> None:
-        self.n, self.do_market_processing = n, do_market_processing
+    def __init__(self) -> None:
+        self.n = BacktestParameters.csv_lines_to_load
         self._set_data()
         self.quotes = self._process_quotes()
         self.instruments = self._process_instruments()
@@ -263,7 +259,6 @@ class MarketLoader:
     
     def _process_markets(self) -> List[Market]: 
         market_risk_factors = [self.btcusd]
-        if not self.do_market_processing: return list()
         output = list()
         n = len(self.dates_dt)
         for i in range(0, len(self.dates_dt)): 
@@ -348,13 +343,13 @@ class MarketLoader:
             self, 
             risk_factor: RiskFactor, 
             reference_time: datetime) -> float: 
+        delta_time = BacktestParameters.garch_time_delta
         instrument_name = risk_factor.base_currency.code + '-PERPETUAL'
-        garch_time_delta = timedelta(days = 20)
         dt = 365*24
         ts = self.get_instrument_mark_price_time_serie(
             instrument_name,
             reference_time,
-            garch_time_delta) 
+            delta_time) 
         egarch = ts.skewed_student_egarch_fit()
         params = egarch.params
         res, condsigmas = egarch.resid, egarch.conditional_volatility
@@ -372,9 +367,9 @@ class MarketLoader:
             self, 
             risk_factor: RiskFactor, 
             reference_time: datetime) -> float: 
-        ar_time_delta = timedelta(days = 20)
+        dt = BacktestParameters.auto_regressive_time_delta
         ts = self.get_risk_factor_atm_factor_time_serie(
-            risk_factor, reference_time,ar_time_delta)
+            risk_factor, reference_time,dt)
         ar = ts.ar_12lag_fit()
         ivlc = ar.params['Const'].item()
         lr = ts.log_difference
@@ -385,3 +380,10 @@ class MarketLoader:
             ivlc = ivlc + r*a
         return ivlc.item()
         
+    def get_date_vector_for_backtest(self) -> List[datetime]: 
+        min_date = min(self.dates_dt)
+        garch_dt = BacktestParameters.garch_time_delta
+        ar_dt = BacktestParameters.auto_regressive_time_delta
+        max_dt = max([garch_dt,ar_dt]) 
+        min_date_for_bt = min_date + max_dt
+        return [d for d in self.dates_dt if d>min_date_for_bt]

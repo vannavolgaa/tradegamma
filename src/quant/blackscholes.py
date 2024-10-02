@@ -29,7 +29,7 @@ class BlackScholes:
         return(np.log(F/K)+t*.5*(sigma**2))/(sigma*np.sqrt(t))
 
     def get_d2(self):
-        return self.d1()-self.sigma*np.sqrt(self.t)
+        return self.d1-self.sigma*np.sqrt(self.t)
     
     def price(self) -> np.array: 
         F, K, r, t = self.F,self.K,self.r,self.t

@@ -92,6 +92,7 @@ class OrderBook:
     bids : List[float]
 
     def __post_init__(self): 
+        self.mid = .5*(self.best_bid+self.best_ask)
         self.spread = compute_spread(self.best_bid,self.best_ask)
 
 @dataclass

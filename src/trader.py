@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import List
 import numpy as np
-from src.market import (
+from src.instruments import (
     Currency, 
     Instrument, 
     Spot, 
@@ -47,12 +47,12 @@ class Trade:
             return CashFlow(0,ccy)
         if isinstance(self.instrument,Option): 
             cap = 0.125*self.number_contracts*self.marked_price
-            amount = -min(0.03*self.crypto_size/100, cap)
+            amount = -min(0.03*self.crypto_size()/100, cap)
             return CashFlow(amount,ccy)
         if isinstance(self.instrument,Future): 
-            return CashFlow(-0.05*self.crypto_size/100,ccy)
+            return CashFlow(-0.05*self.crypto_size()/100,ccy)
         if isinstance(self.instrument,PerpetualFuture):  
-            return CashFlow(-0.05*self.crypto_size/100,ccy)
+            return CashFlow(-0.05*self.crypto_size()/100,ccy)
     
     def pay_leg_cash_flow(self) -> CashFlow: 
         if isinstance(self.instrument,Spot): 
@@ -147,9 +147,11 @@ class Trade:
 class Portfolio: 
     trades : List[Trade] 
 
+    def get_aggregated_trades(self) -> List[Trade]: 
+        pass 
 
-@dataclass
-class GammaTrader: 
-    pass 
+    def get_initial_cash_flows(self) -> dict[Currency, float]: 
+        pass 
+
 
 
