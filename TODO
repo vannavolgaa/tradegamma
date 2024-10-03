@@ -1,65 +1,10 @@
-1) Write forecast realized volatility 
-2) Write forecast relative change in ATM Factor 
+1) chnage Trader to Portfolio 
+- Risk Mangement of a List of Position 
+- - Margin 
+- - Sensitivities 
+- - Pricing 
+- - Mark Pricing 
+- - Delta Hedging Trade 
 
-3) ATM Option CHAIN in Market():
-
-  OptionStrategyQuote(ABC): 
-  - _id 
-  - get_sensi() -> Sensibilities 
-  - get_usd_sensi() -> Sensitivities
-  - def forecast_pnl(sigma_re_forecast: float, rchange_atm_factor_forecast: float)
-  
-  CalendendarSpreadQuote(OptionStrategyQuote):
-  - long_leg_option : Option 
-  - short_leg_option : Option
-  - long_leg_quote : InstrumentQuote 
-  - short_leg_quote : InstrumentQuote
-  
-  StraddleQuote(OptionStrategyQuote):
-  - call : Option 
-  - put : Option
-  - call_quote : InstrumentQuote 
-  - put_quote : InstrumentQuote
-  
-  CalendendarSpreadStraddleQuote(OptionStrategyQuote):
-  - call : Option 
-  - put : Option
-  - call_quote : InstrumentQuote 
-  - put_quote : InstrumentQuote
-  
-  ATMChainQuote
-  - calls : List[Option]
-  - puts : List[Option]
-  - mapped_quotes : dict[str, InstrumentQuote]
-  - def get_calendar_spread_quotes() -> List[CalendendarSpreadQuote]
-  - def get_straddle_quotes() -> List[StraddleQuote]
-  - def get_calendar_spread_straddle_quotes() -> List[CalendendarSpreadStraddleQuote]
-
-
-
-Trade:
-- instrument_name : str 
-- quantity : float
-- traded_price : float
-- currency : Currency
-- stop_loss : float 
-- def trade_fee()
-
-StrategyBlockTrade: 
-trades : List[Trade]
-- def unrealised_pnl(instrument_quote: InstrumentQuote)
-- def realised_pnl()
-
-DeltaHedgingTrades: 
-trades : List[Trades]
-- def unrealised_pnl(instrument_quote: InstrumentQuote)
-- def realised_pnl()
-
-Portfolio: 
-- reference_time : datetime 
-- book : List[StrategyBlockTrade]
-
-- starting_cash(self) 
-
-
+2) Create trader.py -> Handle Cash Flow and generate trades from strategy 
 
