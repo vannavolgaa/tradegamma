@@ -142,6 +142,39 @@ class Trade:
         mm = mm_rate*abs(crypto_size)
         return Margin(im,mm,ccy)
 
+@dataclass
+class Position: 
+    instrument : Instrument 
+    number_contracts : float
+    average_price : float 
+
+def fifo_trades_to_position(trades: List[Trade]) -> Position: 
+    position = sum([t.number_contractsm for t in trades])
+    trade_date = [t.trade_date_time for t in trades]
+    trade_date.sort(reverse=True)
+    ordered_trades = [t for t,d in zip(trades,trade_date) if t.trade_date_time == d]
+    traded_contract, total_traded_price = list(), list()
+    for o in ordered_trades: 
+        if np.sign(position)==np.sign(o.number_contracts): 
+            n= abs(o.number_contracts)
+        else: n = 0
+        if sum(traded_contract)+n>abs(position): 
+            over_limit =  sum(traded_contract)+n-abs(position)
+            n = n - over_limit
+            traded_contract.append(n)
+            total_traded_price.append(n*o.traded_price)
+            break
+        elif sum(traded_contract)+n==abs(position):
+            traded_contract.append(n)
+            total_traded_price.append(n*o.traded_price)
+            break
+        else: 
+            traded_contract.append(n)
+            total_traded_price.append(n*o.traded_price)
+    return Position(
+        instrument=trades[0].instrument, 
+        number_contracts=position, 
+        average_price=sum(total_traded_price)/sum(traded_contract))
 
 @dataclass
 class Portfolio: 
