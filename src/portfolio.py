@@ -242,8 +242,8 @@ class Portfolio:
                     t = instrument.time_to_expiry(self.market.reference_time)
                     ump = futts.future_price(t)
                     mp = quote.order_book.mark_price
-                    K = self.instrument.strike
-                    if self.call_or_put == 'C': 
+                    K = instrument.strike
+                    if instrument.call_or_put == 'C': 
                         otm_amount = max(ump-K, 0) 
                         mm_rate = 0.075 + mp
                         im_rate = max(0.15-otm_amount/ump,0.1)+mp
@@ -336,7 +336,7 @@ class Portfolio:
             else: unrealised_pnl.append(self.get_position_usd_unrealised_pnl(p))
         return sum(unrealised_pnl)
     
-    def get_usd_value(self, deposit: CashFlow) -> float: 
+    def get_usd_realised_pnl(self, deposit: CashFlow) -> float: 
         cash_accounts = self.get_cash_account(deposit)
         cash_accounts_usd_value = 0 
         spot_price = self.spot_quote.order_book.mid
@@ -346,8 +346,10 @@ class Portfolio:
             else: 
                 value = ca.amount*spot_price
                 cash_accounts_usd_value = cash_accounts_usd_value + value
-            
-        return cash_accounts_usd_value+self.get_usd_unrealised_pnl()
+        return cash_accounts_usd_value
+
+    def get_usd_value(self, deposit: CashFlow) -> float: 
+        return self.get_usd_realised_pnl(deposit)+self.get_usd_unrealised_pnl()
 
 
 

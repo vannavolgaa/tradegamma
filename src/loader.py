@@ -359,10 +359,16 @@ class MarketLoader:
         alpha = params['alpha[1]'].item()
         beta = params['beta[1]'].item()
         _gamma = params['gamma[1]'].item()
-        variance = np.exp(omega + alpha*(np.abs(e/s) - np.sqrt(2/np.pi))
-        +_gamma*(e/s)+beta*np.log(s**2))
-        vol = np.sqrt(dt)*np.sqrt(variance)
-        return vol.item()
+        term1 = omega + alpha*(np.abs(e/s) - np.sqrt(2/np.pi))
+        term2 = _gamma*(e/s)+beta*np.log(s**2)
+        variance = np.exp(round(term1+term2, 5))
+        if np.isfinite(variance): 
+            vol = np.sqrt(dt)*np.sqrt(variance)
+            return vol.item()
+        else: 
+            return self.get_realized_volatility_forecast(
+                risk_factor, 
+                reference_time - timedelta(hours=1))
     
     def get_implied_volatility_log_change_forecast(
             self, 
