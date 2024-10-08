@@ -63,6 +63,7 @@ class Market:
         self.atmtvarmap = self.get_atmtvar_map()
         self.atm_factor = self.get_atm_factor()
         self.atm_chain = self.get_atm_chain()
+        self.volatility_surface = self.get_volatility_surface()
     
     def _set_option_data(self) -> None: 
         self.option_expiries = list()
@@ -104,7 +105,7 @@ class Market:
     def get_quote(self, instrument_name:str) -> InstrumentQuote: 
         return [q for q in self.quotes if q.instrument_name==instrument_name][0]
     
-    def get_option(self, instrument_name:str) -> InstrumentQuote: 
+    def get_option(self, instrument_name:str) -> Option: 
         return [q for q in self.options if q.name==instrument_name][0]
        
     def get_future_term_structure(self) -> FutureTermStructure: 
@@ -123,6 +124,7 @@ class Market:
         puts = list()
         mapped_quotes = dict()
         for e in self.option_expiries:
+            if e <= self.reference_time: continue
             opt_name = self.mapped_expiries_option_names[e]
             mapped_put_delta = {q.instrument_name: q.sensitivities.delta 
                                 for q in self.quotes 
@@ -218,14 +220,14 @@ class Market:
         for e in list(self.mapped_liquid_strikes.keys()): 
             K = self.mapped_liquid_strikes[e]
             F = self.mapped_liquid_futprice[e]
-            k = k + np.log(np.array(K)/np.array(F))
+            k = k + list(np.log(np.array(K)/np.array(F)))
             t = t + self.mapped_liquid_exptime[e]
             sigma = sigma + self.mapped_liquid_ivquote[e]
         ssvicalibrator = CalibrateSSVI(
             np.array(sigma),
             k,
             np.array(t),
-            self.atm_tvar_map)
+            self.get_atmtvar_map())
         return VolatilitySurface(
             self.reference_time,
             self.risk_factor,
@@ -255,3 +257,19 @@ class Market:
             plt.title(self.risk_factor.code + ' : ' + str(t))
             plt.show()
    
+    def get_implied_volatility_quote(self, option_name:str, quote_type:str) -> float: 
+        quote = self.get_quote(option_name) 
+        match quote_type: 
+            case 'bid': sigma = quote.bid_iv/100 
+            case 'mid': sigma = quote.mid_iv/100 
+            case 'ask': sigma = quote.ask_iv/100  
+        if sigma == 0: 
+            volsurf = self.volatility_surface
+            option = self.get_option(option_name)
+            t = option.time_to_expiry(self.reference_time)
+            K = option.strike
+            futts = self.get_future_term_structure()
+            F = futts.future_price(t)
+            k = np.log(K/F)
+            sigma = volsurf.ssvi.implied_volatility(k,t)
+        return sigma

@@ -5,6 +5,7 @@ import math
 from datetime import datetime, timedelta
 import numpy as np 
 import matplotlib.pyplot as plt 
+import pickle
 from src.instruments import (
     Instrument, 
     InstrumentQuote, 
@@ -387,3 +388,12 @@ class MarketLoader:
         max_dt = max([garch_dt,ar_dt]) 
         min_date_for_bt = min_date + max_dt
         return [d for d in self.dates_dt if d>min_date_for_bt]
+    
+def get_market_loader() -> MarketLoader: 
+    with open('data/market_loader_object.pkl', 'rb') as inp:
+        return pickle.load(inp)
+    
+def update_market_loader() -> None: 
+    obj = MarketLoader()
+    with open('data/market_loader_object.pkl', 'wb') as outp:  
+        pickle.dump(obj, outp, pickle.HIGHEST_PROTOCOL)

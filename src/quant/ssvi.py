@@ -99,7 +99,6 @@ class CalibrateSSVI:
         return (cs+bf+pm)*1000
     
     def loss(self, params: List[float]) -> float: 
-        print(params)
         rho, _nu, _gamma = params[0], params[2], params[1]
         ssvi = SSVI(rho,_nu,_gamma,self.atmtvarmap)
         if ssvi.parameters_check()==1: return 1e9
