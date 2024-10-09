@@ -21,11 +21,23 @@ from src.instruments import (
 from src.quant.timeserie import TimeSerie
 from src.tools import update_dict_of_list
 from src.market import Market
-from src.parameters import BacktestParameters
-     
+
+garch_time_delta: timedelta = timedelta(days = 10)
+
+auto_regressive_time_delta: timedelta = timedelta(days = 10)
+
+def get_deribit_data() -> pd.DataFrame: 
+    with open('data/deribit_data.pkl', 'rb') as inp:
+        return pickle.load(inp)
+
+def update_deribit_data() -> None: 
+    data = pd.read_csv('data/aggregate_deribit_data.csv')
+    with open('data/deribit_data.pkl', 'wb') as outp:  
+        pickle.dump(data, outp, pickle.HIGHEST_PROTOCOL)
+
 class MarketLoader: 
-    def __init__(self) -> None:
-        self.n = BacktestParameters.csv_lines_to_load
+    def __init__(self, nstart:int=0, nend:int=1000000) -> None:
+        self.nstart, self.nend = nstart, nend
         self._set_data()
         self.quotes = self._process_quotes()
         self.instruments = self._process_instruments()
@@ -47,7 +59,8 @@ class MarketLoader:
         self.dates = [d.strftime('%Y-%m-%d %H:%M:%S') for d in dates_dt]
     
     def _set_data(self) -> None: 
-        data = pd.read_csv('data/aggregate_deribit_data.csv', nrows=self.n)
+        data = get_deribit_data()
+        data = data.iloc[self.nstart:self.nend]
         data = data.to_dict('records')
         self._set_dates(data)
         self.data, self.mapped_instrument_data = list(), dict()
@@ -344,7 +357,7 @@ class MarketLoader:
             self, 
             risk_factor: RiskFactor, 
             reference_time: datetime) -> float: 
-        delta_time = BacktestParameters.garch_time_delta
+        delta_time = garch_time_delta
         instrument_name = risk_factor.base_currency.code + '-PERPETUAL'
         dt = 365*24
         ts = self.get_instrument_mark_price_time_serie(
@@ -374,7 +387,7 @@ class MarketLoader:
             self, 
             risk_factor: RiskFactor, 
             reference_time: datetime) -> float: 
-        dt = BacktestParameters.auto_regressive_time_delta
+        dt = auto_regressive_time_delta
         ts = self.get_risk_factor_atm_factor_time_serie(
             risk_factor, reference_time,dt)
         ar = ts.ar_12lag_fit()
@@ -389,8 +402,8 @@ class MarketLoader:
         
     def get_date_vector_for_backtest(self) -> List[datetime]: 
         min_date = min(self.dates_dt)
-        garch_dt = BacktestParameters.garch_time_delta
-        ar_dt = BacktestParameters.auto_regressive_time_delta
+        garch_dt = garch_time_delta
+        ar_dt = auto_regressive_time_delta
         max_dt = max([garch_dt,ar_dt]) 
         min_date_for_bt = min_date + max_dt
         return [d for d in self.dates_dt if d>min_date_for_bt]
@@ -399,7 +412,7 @@ def get_market_loader() -> MarketLoader:
     with open('data/market_loader_object.pkl', 'rb') as inp:
         return pickle.load(inp)
     
-def update_market_loader() -> None: 
-    obj = MarketLoader()
+def update_market_loader(nstart:int=0, nend:int=1000000) -> None: 
+    obj = MarketLoader(nstart,nend)
     with open('data/market_loader_object.pkl', 'wb') as outp:  
         pickle.dump(obj, outp, pickle.HIGHEST_PROTOCOL)

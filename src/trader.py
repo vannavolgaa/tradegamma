@@ -302,9 +302,9 @@ class VolatilityTrader:
             voltradingstrat = VolatilityTradingStrategy(self.market,self.exposure)
             best_bt = voltradingstrat.get_best_block_trade(fivc, fre)
         else: best_bt = None
-        if best_bt is None: output = list()
-        else: output = [best_bt]
-        #output = self.check_new_block_trade(best_bt)
+        #if best_bt is None: output = list()
+        #else: output = [best_bt]
+        output = self.check_new_block_trade(best_bt)
         for bt in self.book.vt_block_trades: 
             if not bt.is_block_trade_close: 
                 vt_pnl = VTBlockTradePnL(

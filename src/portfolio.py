@@ -351,6 +351,14 @@ class Portfolio:
     def get_usd_value(self, deposit: CashFlow) -> float: 
         return self.get_usd_realised_pnl(deposit)+self.get_usd_unrealised_pnl()
 
+    def get_usd_fee_value(self) -> float: 
+        output = 0 
+        spot_price = self.spot_quote.order_book.mid
+        for p in self.positions: 
+            feecf = p.get_fee_cash_flow()
+            if feecf.currency!=Currency('USD'): 
+                output = output + spot_price*feecf.amount
+            else: output = output + feecf.amount
 
 
 
