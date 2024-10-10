@@ -66,7 +66,7 @@ def backtest_volatility_trader() -> pd.DataFrame:
 @dataclass
 class BacktestInput: 
     deposit_usd : float = 10000
-    crypto_exposure : float = 0.1
+    exposure : float = 0.1
     reload_market : bool = False 
     first_data_point : int = 0 
     last_data_point : int = 1000000
@@ -86,17 +86,18 @@ class BacktestOutput:
 
     @staticmethod
     def x_axis__dates(dates: List[datetime]):
+        dates = [d.to_pydatetime() for d in dates]
         now, then = dates[0], dates[len(dates)-1]
-        return mdates.drange(now,then,timedelta(days=1))
+        return mdates.drange(now,then,timedelta(hours=24))
 
     def plot_portfolio_delta(self) -> None: 
-        plt.plot(self.x_axis__dates(self.portfolio_report.time), 
+        plt.plot(self.portfolio_report.time, 
                  self.portfolio_report.delta)
         plt.title('Global delta exposure')
         plt.show()
     
-    def plot_portfolio_delta(self) -> None: 
-        plt.plot(self.x_axis__dates(self.portfolio_report.time), 
+    def plot_portfolio_usd_value(self) -> None: 
+        plt.plot(self.portfolio_report.time, 
                  self.portfolio_report.usd_value)
         plt.title('Global USD portfolio value')
         plt.show()
@@ -107,7 +108,7 @@ class VolatilityTraderBlacktest:
         self.inputdata = inputdata
         self.loader = inputdata.get_market_loader()
         self.deposit = CashFlow(inputdata.deposit_usd,self.loader.usd)
-        self.riskfactor = self.loader.btcusd
+        self.risk_factor = self.loader.btcusd
         self.dates = self.loader.get_date_vector_for_backtest()
         self.forecasts = self.get_forecasts()
 
@@ -175,7 +176,8 @@ class VolatilityTraderBlacktest:
         output = list()
         market = portfolio.market
         iv_change_forecast = self.forecasts[market.reference_time]['iv_change_forecast']
-        re_forecast = self.forecasts[market.reference_time]['iv_change_forecast']
+        re_forecast = self.forecasts[market.reference_time]['re_forecast']
+        spot = portfolio.spot_quote.order_book.mid
         for p in portfolio.positions: 
             if p.number_contracts != 0 and isinstance(p.instrument, Option): 
                 i = p.instrument
@@ -189,7 +191,10 @@ class VolatilityTraderBlacktest:
                     'strike' : i.strike, 
                     'iv' : quote.mid_iv,
                     'iv_forecast' : quote.mid_iv*(1+iv_change_forecast), 
-                    're_forecast' : re_forecast,            
+                    're_forecast' : re_forecast,  
+                    'usd_unrealised' : portfolio.get_position_usd_unrealised_pnl(p), 
+                    'usd_realised': p.get_realised_pnl_cash_flow().amount*spot, 
+                    'usd_fees': p.get_fee_cash_flow().amount*spot     
                 }
                 output.append(dict_out)
             else: continue
@@ -206,7 +211,8 @@ class VolatilityTraderBlacktest:
                     'name': i.name, 
                     'position' : p.number_contracts, 
                     'traded_price' : p.fifo_price,
-                    'mark_price' : quote.order_book.mark_price,    
+                    'mark_price' : quote.order_book.mark_price, 
+                    'usd_unrealised' : portfolio.get_position_usd_unrealised_pnl(p),    
                 }
                 output.append(dict_out)
             else: continue
@@ -233,9 +239,9 @@ class VolatilityTraderBlacktest:
             print(str(perc) + '% of the backtest')
         print('Backtest is done.')
         return BacktestOutput(
-            portfolio_report=portfolio_report, 
-            option_position_report=option_position_report, 
-            perp_position_report=perp_position_report, 
+            portfolio_report=pd.DataFrame(portfolio_report), 
+            option_position_report=pd.DataFrame(option_position_report), 
+            perp_position_report=pd.DataFrame(perp_position_report), 
             last_book=book,
             last_portfolio=pft)
         

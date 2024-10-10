@@ -60,7 +60,7 @@ class Trade:
         if isinstance(self.instrument,Spot): 
             return CashFlow(0,ccy)
         if isinstance(self.instrument,Option): 
-            cap = 0.125*self.number_contracts*self.traded_price
+            cap = 0.125*abs(self.number_contracts)*self.traded_price
             amount = -min(0.03*self.get_size()/100, cap)
             return CashFlow(amount,ccy)
         if isinstance(self.instrument,Future): 
@@ -107,9 +107,9 @@ class Position:
         return CashFlow(amount, Currency(ccy))
     
     def get_realised_pnl_cash_flow(self) -> CashFlow: 
-        total_price = sum([t.number_contracts*t.traded_price 
+        total_price = sum([-t.number_contracts*t.traded_price 
                            for t in self.trades])
-        total_price = round(total_price - self.number_contracts*self.fifo_price,5)
+        total_price = round(total_price + self.number_contracts*self.fifo_price,5)
         return CashFlow(total_price,self.price_currency)  
     
     def to_trade(self, reference_time:datetime) -> Trade: 
@@ -359,6 +359,7 @@ class Portfolio:
             if feecf.currency!=Currency('USD'): 
                 output = output + spot_price*feecf.amount
             else: output = output + feecf.amount
+        return output 
 
 
 
