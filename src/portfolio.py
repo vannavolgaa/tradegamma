@@ -34,9 +34,6 @@ class Trade:
     currency : Currency
     reference_time : datetime
 
-    def __post_init__(self): 
-        self.premium = self._set_premium() 
-
     def _set_premium(self) -> float: 
         if isinstance(self.instrument, Future): 
             return 0 
@@ -85,20 +82,30 @@ class Position:
         elif isinstance(self.instrument, PerpetualFuture): 
             return 0 
         else: 
-            return self.number_contracts*self.fifo_price
+            return -self.number_contracts*self.fifo_price
 
     def get_net_position(self) -> float: 
         return round(sum([t.number_contracts for t in self.trades]),5)
     
     def get_fifo_price(self) -> float: 
-        total_price = sum([t.number_contracts*t.traded_price 
-                           for t in self.trades])
-        try: return total_price/self.number_contracts
-        except ZeroDivisionError: return 0
+        trades = sorted(self.trades, 
+                        key=operator.attrgetter('reference_time'),
+                        reverse=True)
+        xmax, xmin = self.number_contracts,self.number_contracts
+        cfmax, cfmin = list(), list()
+        for t in trades: 
+            qmax = max(xmax-max(t.number_contracts,0), 0) 
+            qmin = min(xmin-min(t.number_contracts,0), 0)
+            deltamax, deltamin = xmax-qmax, xmin-qmin
+            cfmax.append(deltamax*t.traded_price), cfmin.append(deltamin*t.traded_price)
+            xmax, xmin = qmax, qmin
+        if self.number_contracts == 0: return 0 
+        elif self.number_contracts>0: return sum(cfmax)/self.number_contracts
+        elif self.number_contracts<0: return sum(cfmin)/self.number_contracts
     
     def get_premium_cash_flow(self) -> CashFlow: 
         return CashFlow(
-            -self.get_premium(), 
+            self.get_premium(), 
             self.price_currency)
     
     def get_fee_cash_flow(self) -> CashFlow: 
@@ -106,11 +113,21 @@ class Position:
         ccy = [t.trade_fee().currency.code for t in self.trades][0]
         return CashFlow(amount, Currency(ccy))
     
+    def get_realised_pnl(self) -> float: 
+        if isinstance(self.instrument, PerpetualFuture):
+            c = self.instrument.contract_size
+            total_cash_flow = sum([-t.number_contracts*c/t.traded_price for t in self.trades])
+            premium = self.number_contracts*c/self.fifo_price 
+        else: 
+            total_cash_flow = sum([-t.number_contracts*t.traded_price for t in self.trades])
+            premium = self.number_contracts*self.fifo_price
+        return (total_cash_flow+premium)
+
     def get_realised_pnl_cash_flow(self) -> CashFlow: 
-        total_price = sum([-t.number_contracts*t.traded_price 
-                           for t in self.trades])
-        total_price = round(total_price + self.number_contracts*self.fifo_price,5)
-        return CashFlow(total_price,self.price_currency)  
+        if isinstance(self.instrument, PerpetualFuture):
+            return CashFlow(self.get_realised_pnl(),self.instrument.risk_factor.base_currency)
+        else: 
+            return CashFlow(self.get_realised_pnl(),self.price_currency)  
     
     def to_trade(self, reference_time:datetime) -> Trade: 
         return Trade(
@@ -146,10 +163,38 @@ def trades_to_positions(trades : List[Trade]) -> List[Position]:
         output.append(Position(trade))
     return output
 
+def settle_expired_position(position:Position, market:Market) -> Position:
+    if position.number_contracts == 0: return position
+    spot_quote = market.get_quote(market.spot.name)
+    i = position.instrument
+    S = spot_quote.order_book.mark_price 
+    if isinstance(i,Future): 
+        exp, ref = i.expiry_dt, market.reference_time
+        if position.number_contracts!=0 and exp==ref: 
+            settle_trade = position.get_settlement_trade(S, ref)
+            new_trades = position.trades.copy()
+            new_trades.append(settle_trade)
+            return Position(new_trades)
+        else: return position
+    elif isinstance(i,Option): 
+        exp, ref = i.expiry_dt, market.reference_time
+        if position.number_contracts!=0 and exp==ref: 
+            K = i.strike
+            if i.call_or_put=='C': x = 1 
+            else: x=-1
+            price = x*max(S-K, 0)/S
+            settle_trade = position.get_settlement_trade(price, ref)
+            new_trades = position.trades.copy()
+            new_trades.append(settle_trade)
+            return Position(new_trades)
+        else: return position
+    else: return position
+
 @dataclass
 class Portfolio: 
     positions : List[Position] 
     market : Market 
+    initial_deposit : CashFlow 
 
     def __post_init__(self): 
         self.spot_quote = self.market.get_quote(self.market.spot.name)
@@ -195,7 +240,8 @@ class Portfolio:
             theta = sum(theta_exposure), 
             vega = sum(vega_exposure))
     
-    def get_cash_account(self, deposit:CashFlow) -> List[CashFlow]: 
+    def get_cash_account(self) -> List[CashFlow]: 
+        deposit = self.initial_deposit
         output_dict = {deposit.currency.code : deposit.amount}
         for p in self.positions: 
             cash_flows = p.get_cash_flows()
@@ -304,10 +350,10 @@ class Portfolio:
             else: new_position.append(p) 
         return new_position
 
-    def is_cash_sufficient(self, deposit:CashFlow) -> bool: 
+    def is_cash_sufficient(self) -> bool: 
         margin = self.get_margin()
         try:
-            cash_account = [ca for ca in self.get_cash_account(deposit) 
+            cash_account = [ca for ca in self.get_cash_account() 
                             if ca.currency==margin.currency][0]
         except IndexError: 
             cash_account = CashFlow(0,margin.currency)
@@ -336,8 +382,8 @@ class Portfolio:
             else: unrealised_pnl.append(self.get_position_usd_unrealised_pnl(p))
         return sum(unrealised_pnl)
     
-    def get_usd_realised_pnl(self, deposit: CashFlow) -> float: 
-        cash_accounts = self.get_cash_account(deposit)
+    def get_usd_realised_pnl(self) -> float: 
+        cash_accounts = self.get_cash_account()
         cash_accounts_usd_value = 0 
         spot_price = self.spot_quote.order_book.mid
         for ca in cash_accounts: 
@@ -348,8 +394,8 @@ class Portfolio:
                 cash_accounts_usd_value = cash_accounts_usd_value + value
         return cash_accounts_usd_value
 
-    def get_usd_value(self, deposit: CashFlow) -> float: 
-        return self.get_usd_realised_pnl(deposit)+self.get_usd_unrealised_pnl()
+    def get_usd_value(self) -> float: 
+        return self.get_usd_realised_pnl()+self.get_usd_unrealised_pnl()
 
     def get_usd_fee_value(self) -> float: 
         output = 0 

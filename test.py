@@ -23,7 +23,6 @@ class Position:
         return sum([t.quantity for t in self.trades])
     
     def get_fifo_price(self) -> float: 
-        np = self.net_position
         trades = sorted(self.trades, key=operator.attrgetter('ref_time'),reverse=True)
         xmax, xmin = self.net_position,self.net_position
         cfmax, cfmin = list(), list()
