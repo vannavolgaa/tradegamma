@@ -387,14 +387,16 @@ class MarketLoader:
         dt = auto_regressive_time_delta
         ts = self.get_risk_factor_atm_factor_time_serie(
             risk_factor, reference_time,dt)
-        ar = ts.ar_12lag_fit()
+        ar = ts.ar_1lag_fit()
         ivlc = ar.params['Const'].item()
         lr = ts.log_difference
         n = len(lr)
-        for i in range(1,13): 
-            name = 'y['+str(i)+']'
-            r,a = lr[len(lr)-i], ar.params[name].item()
-            ivlc = ivlc + r*a
+        r,a = lr[len(lr)-1], ar.params['y[1]'].item()
+        ivlc = ivlc + r*a
+        #for i in range(1,2): 
+        #    name = 'y['+str(i)+']'
+        #    r,a = lr[len(lr)-i], ar.params[name].item()
+        #    ivlc = ivlc + r*a
         return ivlc.item()
         
     def get_date_vector_for_backtest(self) -> List[datetime]: 

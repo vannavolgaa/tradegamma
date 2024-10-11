@@ -90,7 +90,7 @@ class VolatilityTraderBlacktest:
         self.loader = inputdata.get_market_loader()
         self.deposit = CashFlow(inputdata.deposit_usd,self.loader.usd)
         self.risk_factor = self.loader.btcusd
-        self.dates = self.loader.get_date_vector_for_backtest()[0:10]
+        self.dates = self.loader.get_date_vector_for_backtest()[0:100]
         self.forecasts = self.get_forecasts()
 
     def get_forecasts(self) -> dict[datetime,dict[str, float]]:
@@ -164,7 +164,7 @@ class VolatilityTraderBlacktest:
             if p.number_contracts != 0 and isinstance(p.instrument, Option): 
                 i = p.instrument
                 quote = market.get_quote(i.name)
-                sigma = quote.mid_iv
+                sigma = market.get_implied_volatility_quote(i.name,'mid')
                 t = i.time_to_expiry(market.reference_time)
                 F = futts.future_price(t)
                 if i.call_or_put == 'C': put_or_call=1
@@ -250,17 +250,19 @@ class VolatilityTraderBlacktest:
         perp_quote_next = market_next.get_quote(market_next.perpetual.name).order_book.mark_price
         atm_factor = market.atm_factor
         atm_factor_next = market_next.atm_factor
-        perp_log_change = np.log(perp_quote_next-perp_quote)
-        atmf_log_change = np.log(atm_factor_next-atm_factor)
+        perp_log_change = np.log(perp_quote_next)-np.log(perp_quote)
+        atmf_log_change = np.log(atm_factor_next)-np.log(atm_factor)
         dt = 1/(365*24)
         perp_rev = np.sqrt((perp_log_change**2)/dt)
         re_forecat = self.forecasts[ref_time]['re_forecast']
         iv_change_forecast = self.forecasts[ref_time]['iv_change_forecast']
-        return {'perp_log_return' : perp_log_change, 
-                'perp_realised_vol': perp_rev, 
-                'atm_factor_change' : atmf_log_change, 
-                'atm_factor_change_forecast_1' : iv_change_forecast, 
-                'perp_realised_vol_forecast_1': re_forecat}
+        return {
+            'time' : ref_time,
+            'perp_log_return' : perp_log_change, 
+            'perp_realised_vol': perp_rev, 
+            'atm_factor_change' : atmf_log_change, 
+            'atm_factor_change_forecast_1' : iv_change_forecast, 
+            'perp_realised_vol_forecast_1': re_forecat}
 
     def launch_backtest(self) -> BacktestOutput: 
         i = 0

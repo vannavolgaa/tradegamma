@@ -45,8 +45,8 @@ class TimeSerie:
         archmodel.distribution = Normal()
         return archmodel.fit(disp=False, show_warning=False)
     
-    def ar_12lag_fit(self) -> ARCHModelResult: 
-        archmodel = ARX(self.log_difference, lags=12, rescale=False)
+    def ar_1lag_fit(self) -> ARCHModelResult: 
+        archmodel = ARX(self.log_difference, lags=1, rescale=False)
         return archmodel.fit(disp=False, show_warning=False)
 
     
