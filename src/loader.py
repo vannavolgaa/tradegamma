@@ -340,7 +340,7 @@ class MarketLoader:
             time_delta:timedelta) -> None: 
         ts = self.get_instrument_mark_price_time_serie(
             instrument_name, reference_time, time_delta)
-        egarch = ts.skewed_student_egarch_fit()
+        egarch = ts.normal_egarch_fit()
         vol = egarch.conditional_volatility
         ret = ts.log_difference
         dates = list(ts.datamap.keys())
@@ -364,17 +364,14 @@ class MarketLoader:
             instrument_name,
             reference_time,
             delta_time) 
-        egarch = ts.skewed_student_egarch_fit()
+        egarch = ts.normal_garch_fit()
         params = egarch.params
         res, condsigmas = egarch.resid, egarch.conditional_volatility
         e, s = res[len(res)-1], condsigmas[len(condsigmas)-1]
         omega = params['omega'].item()
         alpha = params['alpha[1]'].item()
         beta = params['beta[1]'].item()
-        _gamma = params['gamma[1]'].item()
-        term1 = omega + alpha*(np.abs(e/s) - np.sqrt(2/np.pi))
-        term2 = _gamma*(e/s)+beta*np.log(s**2)
-        variance = np.exp(round(term1+term2, 5))
+        variance = omega + alpha*np.abs(e)**2 + beta*s**2
         if np.isfinite(variance): 
             vol = np.sqrt(dt)*np.sqrt(variance)
             return vol.item()

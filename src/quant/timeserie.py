@@ -33,10 +33,16 @@ class TimeSerie:
     def z_score_log_difference(self, ld: np.array) -> np.array: 
         return (ld - self.mean_log_difference())/self.std_log_difference()
     
-    def skewed_student_egarch_fit(self) -> ARCHModelResult: 
+    def normal_egarch_fit(self) -> ARCHModelResult: 
         archmodel = ZeroMean(self.log_difference, rescale=False)
-        archmodel.volatility = EGARCH(1,1,1)
-        archmodel.distribution = StudentsT()
+        archmodel.volatility = EGARCH(1,0,1)
+        archmodel.distribution = Normal()
+        return archmodel.fit(disp=False, show_warning=False)
+    
+    def normal_garch_fit(self) -> ARCHModelResult: 
+        archmodel = ZeroMean(self.log_difference, rescale=False)
+        archmodel.volatility = GARCH(1,0,1)
+        archmodel.distribution = Normal()
         return archmodel.fit(disp=False, show_warning=False)
     
     def ar_12lag_fit(self) -> ARCHModelResult: 

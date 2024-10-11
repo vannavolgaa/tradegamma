@@ -198,7 +198,6 @@ class Portfolio:
 
     def __post_init__(self): 
         self.spot_quote = self.market.get_quote(self.market.spot.name)
-        #self.positions = self.settle_expired_positions()
         self.sensitivities = self.get_usd_sensitivities('mid')
 
     def get_usd_sensitivities(self, quote_type:str) -> Sensitivities: 
@@ -318,37 +317,6 @@ class Portfolio:
             im.append(im_rate*abs(size))
             mm.append(mm_rate*abs(size))
         return Margin(sum(im),sum(mm),self.market.risk_factor.base_currency)
-        
-    def settle_expired_positions(self) -> List[Position]: 
-        new_position = list()
-        for p in self.positions: 
-            if p.number_contracts == 0: 
-                new_position.append(p)
-                continue
-            i = p.instrument
-            S = self.spot_quote.order_book.mark_price 
-            if isinstance(i,Future): 
-                exp, ref = i.expiry_dt, self.market.reference_time
-                if p.number_contracts!=0 and exp==ref: 
-                    settle_trade = p.get_settlement_trade(S, ref)
-                    new_trades = p.trades.copy()
-                    new_trades.append(settle_trade)
-                    new_position.append(Position(new_trades))
-                else: new_position.append(p)
-            elif isinstance(i,Option): 
-                exp, ref = i.expiry_dt, self.market.reference_time
-                if p.number_contracts!=0 and exp==ref: 
-                    K = i.strike
-                    if i.call_or_put=='C': x = 1 
-                    else: x=-1
-                    price = x*max(S-K, 0)/S
-                    settle_trade = p.get_settlement_trade(price, ref)
-                    new_trades = p.trades.copy()
-                    new_trades.append(settle_trade)
-                    new_position.append(Position(new_trades))
-                else: new_position.append(p)
-            else: new_position.append(p) 
-        return new_position
 
     def is_cash_sufficient(self) -> bool: 
         margin = self.get_margin()
@@ -360,7 +328,19 @@ class Portfolio:
         if cash_account.amount - margin.initial > margin.maintenance: 
             return True
         else: return False
-
+    
+    def get_usd_cash_account(self) -> float: 
+        output = 0 
+        for c in self.get_cash_account(): 
+            if c.currency != Currency('USD'): 
+                output = output + c.amount*self.spot_quote.order_book.mid
+            else: output = output + c.amount
+        margin = self.get_margin()
+        if margin.currency != Currency('USD'): 
+                output = output - margin.initial*self.spot_quote.order_book.mid
+        else: output = output - margin.initial
+        return output
+    
     def get_position_usd_unrealised_pnl(self, position:Position) -> float: 
         spot_price = self.spot_quote.order_book.mid
         i = position.instrument
@@ -383,21 +363,16 @@ class Portfolio:
         return sum(unrealised_pnl)
     
     def get_usd_realised_pnl(self) -> float: 
-        cash_accounts = self.get_cash_account()
-        cash_accounts_usd_value = 0 
+        realised_pnl = 0
         spot_price = self.spot_quote.order_book.mid
-        for ca in cash_accounts: 
-            if ca.currency == Currency('USD'): 
-                cash_accounts_usd_value = cash_accounts_usd_value + ca.amount
-            else: 
-                value = ca.amount*spot_price
-                cash_accounts_usd_value = cash_accounts_usd_value + value
-        return cash_accounts_usd_value
+        for p in self.positions: 
+            rpnl = p.get_realised_pnl_cash_flow()
+            if rpnl.currency!=Currency('USD'): 
+                realised_pnl = realised_pnl + spot_price*rpnl.amount
+            else: realised_pnl = realised_pnl + rpnl.amount
+        return realised_pnl
 
-    def get_usd_value(self) -> float: 
-        return self.get_usd_realised_pnl()+self.get_usd_unrealised_pnl()
-
-    def get_usd_fee_value(self) -> float: 
+    def get_usd_fee(self) -> float: 
         output = 0 
         spot_price = self.spot_quote.order_book.mid
         for p in self.positions: 
@@ -406,6 +381,13 @@ class Portfolio:
                 output = output + spot_price*feecf.amount
             else: output = output + feecf.amount
         return output 
+    
+    def get_usd_total_pnl(self) -> float: 
+        return self.get_usd_fee() + self.get_usd_realised_pnl() \
+            + self.get_usd_unrealised_pnl()
+
+    def get_usd_total_value(self) -> float:
+        return self.initial_deposit.amount + self.get_usd_total_pnl()
 
 
 

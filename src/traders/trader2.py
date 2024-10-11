@@ -174,7 +174,6 @@ class VolatilityTradingStrategy:
         return engine.estimated_pnl()
 
     def get_best_block_trade(self) -> List[Trade]: 
-        fic, fre = self.fic, self.fre
         estimated_pnl = [self.get_block_trade_pnl(bt)
                          for bt in self.block_trades]
         best_bt = [bt for bt,p in zip(self.block_trades, estimated_pnl) 
@@ -202,7 +201,7 @@ class VolatilityTrader:
     
     def get_bet_size(self) -> float: 
         if len(self.new_trades)==0: return 0
-        target_pnl = self.portfolio.get_usd_value()*self.target_pnl
+        target_pnl = self.portfolio.get_usd_total_value()*self.target_pnl
         pft_engine = VTEnginePnL(
             self.portfolio,
             self.forecast_iv_change,
