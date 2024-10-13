@@ -3,8 +3,6 @@ from typing import List
 import pandas as pd 
 import math 
 from datetime import datetime, timedelta
-import numpy as np 
-import matplotlib.pyplot as plt 
 import pickle
 from src.instruments import (
     Instrument, 
@@ -21,10 +19,6 @@ from src.instruments import (
 from src.quant.timeserie import TimeSerie
 from src.tools import update_dict_of_list
 from src.market import Market
-
-garch_time_delta: timedelta = timedelta(days = 10)
-
-auto_regressive_time_delta: timedelta = timedelta(days = 10)
 
 def get_deribit_data() -> pd.DataFrame: 
     with open('data/deribit_data.pkl', 'rb') as inp:
@@ -322,91 +316,7 @@ class MarketLoader:
                 if m.risk_factor == risk_factor: 
                     output[mdate] = m.atm_factor
         return TimeSerie(output)
-
-    def get_instrument_log_return(
-            self, 
-            instrument_name: str, 
-            reference_time: datetime, 
-            time_delta:timedelta) -> float: 
-        ts = self.get_instrument_mark_price_time_serie(
-            instrument_name, reference_time, time_delta, True)
-        dates = list(ts.datamap.keys())
-        start, end = ts.datamap[min(dates)], ts.datamap[max(dates)]
-        return np.log(end) - np.log(start)
-    
-    def plot_realized_volatility_model_fit(self, 
-            instrument_name: str, 
-            reference_time: datetime, 
-            time_delta:timedelta) -> None: 
-        ts = self.get_instrument_mark_price_time_serie(
-            instrument_name, reference_time, time_delta)
-        egarch = ts.normal_egarch_fit()
-        vol = egarch.conditional_volatility
-        ret = ts.log_difference
-        dates = list(ts.datamap.keys())
-        dates = dates[1:len(dates)]
-        title = instrument_name + ' fit @ ' + \
-        reference_time.strftime('%Y-%m-%d %H:%M:%S')
-        plt.plot(dates,ret)
-        plt.plot(dates,-vol, color = 'red')
-        plt.plot(dates,vol, color = 'red')
-        plt.title(title)
-        plt.show()
-
-    def get_realized_volatility_forecast(
-            self, 
-            risk_factor: RiskFactor, 
-            reference_time: datetime) -> float: 
-        delta_time = garch_time_delta
-        instrument_name = risk_factor.base_currency.code + '-PERPETUAL'
-        dt = 365*24
-        ts = self.get_instrument_mark_price_time_serie(
-            instrument_name,
-            reference_time,
-            delta_time) 
-        egarch = ts.normal_garch_fit()
-        params = egarch.params
-        res, condsigmas = egarch.resid, egarch.conditional_volatility
-        e, s = res[len(res)-1], condsigmas[len(condsigmas)-1]
-        omega = params['omega'].item()
-        alpha = params['alpha[1]'].item()
-        beta = params['beta[1]'].item()
-        variance = omega + alpha*np.abs(e)**2 + beta*s**2
-        if np.isfinite(variance): 
-            vol = np.sqrt(dt)*np.sqrt(variance)
-            return vol.item()
-        else: 
-            return self.get_realized_volatility_forecast(
-                risk_factor, 
-                reference_time - timedelta(hours=1))
-    
-    def get_implied_volatility_log_change_forecast(
-            self, 
-            risk_factor: RiskFactor, 
-            reference_time: datetime) -> float: 
-        dt = auto_regressive_time_delta
-        ts = self.get_risk_factor_atm_factor_time_serie(
-            risk_factor, reference_time,dt)
-        ar = ts.ar_1lag_fit()
-        ivlc = ar.params['Const'].item()
-        lr = ts.log_difference
-        n = len(lr)
-        r,a = lr[len(lr)-1], ar.params['y[1]'].item()
-        ivlc = ivlc + r*a
-        #for i in range(1,2): 
-        #    name = 'y['+str(i)+']'
-        #    r,a = lr[len(lr)-i], ar.params[name].item()
-        #    ivlc = ivlc + r*a
-        return ivlc.item()
         
-    def get_date_vector_for_backtest(self) -> List[datetime]: 
-        min_date = min(self.dates_dt)
-        garch_dt = garch_time_delta
-        ar_dt = auto_regressive_time_delta
-        max_dt = max([garch_dt,ar_dt]) 
-        min_date_for_bt = min_date + max_dt
-        return [d for d in self.dates_dt if d>min_date_for_bt]
-    
 def get_market_loader() -> MarketLoader: 
     with open('data/market_loader_object.pkl', 'rb') as inp:
         return pickle.load(inp)

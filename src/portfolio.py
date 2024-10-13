@@ -58,7 +58,7 @@ class Trade:
             return CashFlow(0,ccy)
         if isinstance(self.instrument,Option): 
             cap = 0.125*abs(self.number_contracts)*self.traded_price
-            amount = -min(0.03*self.get_size()/100, cap)
+            amount = max(-0.03*self.get_size()/100, -cap)
             return CashFlow(amount,ccy)
         if isinstance(self.instrument,Future): 
             return CashFlow(-0.05*self.get_size()/100,ccy)
@@ -116,8 +116,8 @@ class Position:
     def get_realised_pnl(self) -> float: 
         if isinstance(self.instrument, PerpetualFuture):
             c = self.instrument.contract_size
-            total_cash_flow = sum([-t.number_contracts*c/t.traded_price for t in self.trades])
-            premium = self.number_contracts*c/self.fifo_price 
+            total_cash_flow = sum([t.number_contracts*c/t.traded_price for t in self.trades])
+            premium = -self.number_contracts*c/self.fifo_price 
         else: 
             total_cash_flow = sum([-t.number_contracts*t.traded_price for t in self.trades])
             premium = self.number_contracts*self.fifo_price
@@ -182,7 +182,7 @@ def settle_expired_position(position:Position, market:Market) -> Position:
             K = i.strike
             if i.call_or_put=='C': x = 1 
             else: x=-1
-            price = x*max(S-K, 0)/S
+            price = max(x*(S-K), 0)/S
             settle_trade = position.get_settlement_trade(price, ref)
             new_trades = position.trades.copy()
             new_trades.append(settle_trade)
@@ -342,6 +342,7 @@ class Portfolio:
         return output
     
     def get_position_usd_unrealised_pnl(self, position:Position) -> float: 
+        if position.number_contracts==0: return 0
         spot_price = self.spot_quote.order_book.mid
         i = position.instrument
         if isinstance(i, PerpetualFuture):
@@ -350,7 +351,8 @@ class Portfolio:
             n = position.number_contracts*i.contract_size
         fifo_price = position.fifo_price
         quote = self.market.get_quote(i.name)
-        quoted_price = quote.order_book.mark_price
+        if n<0: quoted_price = quote.order_book.best_ask
+        else: quoted_price = quote.order_book.best_bid
         if quote.order_book.quote_currency != Currency('USD'):
             return n*(quoted_price-fifo_price)*spot_price
         else: return n*(quoted_price-fifo_price)
@@ -389,6 +391,20 @@ class Portfolio:
     def get_usd_total_value(self) -> float:
         return self.initial_deposit.amount + self.get_usd_total_pnl()
 
+@dataclass
+class Book: 
+    trades : List[Trade]
+    initial_deposit : CashFlow
 
+    def to_positions(self) -> List[Position]: 
+        return trades_to_positions(self.trades)
 
+    def to_portfolio(self, market:Market) -> Portfolio: 
+        return Portfolio(self.to_positions(),market, self.initial_deposit)
 
+def settle_book_expired_positions(book:Book, market:Market) -> Book: 
+    new_position = [settle_expired_position(p, market) for p in book.to_positions()]
+    trades = list()
+    for p in new_position: 
+        trades = trades + p.trades
+    return Book(trades, book.initial_deposit)

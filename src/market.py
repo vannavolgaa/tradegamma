@@ -124,7 +124,7 @@ class Market:
         puts = list()
         mapped_quotes = dict()
         for e in self.option_expiries:
-            if e <= self.reference_time: continue
+            if e <= self.reference_time or e > self.reference_time+timedelta(days=80): continue
             opt_name = self.mapped_expiries_option_names[e]
             mapped_put_delta = {q.instrument_name: q.sensitivities.delta 
                                 for q in self.quotes 
@@ -180,9 +180,9 @@ class Market:
         return [o for o in self.options if o.name in filtered_names]
 
     def get_atm_factor(self) -> float: 
-        t_vec = np.array(list(self.atmtvarmap.keys()))
-        v = np.array(list(self.atmtvarmap.values()))
-        l = scipy.stats.linregress(t_vec, v)
+        t_vec = [k for k in list(self.atmtvarmap.keys()) if k <=80/365]
+        v = [self.atmtvarmap[t] for t in t_vec]
+        l = scipy.stats.linregress(np.array(t_vec), np.array(v))
         return np.sqrt(l.slope.item())
 
     def get_atmtvar_map(self) -> dict[float, float]: 
@@ -199,20 +199,21 @@ class Market:
             k = np.log(np.array(K)/np.array(F))
             iv = self.mapped_liquid_ivquote[e]
             if len(iv)==1: 
-                output[t] = iv
+                output[t] = t*(iv**2)
                 continue
             k_iv_map = dict(zip(k,iv))
             k_iv_map = dict(sorted(k_iv_map.items()))
             k = list(k_iv_map.keys())
             iv = list(k_iv_map.values())
             if np.all(np.array(k)>0): 
-                output[t] = k_iv_map[min(k)]
+                output[t] = t*k_iv_map[min(k)]**2
                 continue 
             if np.all(np.array(k)<0): 
-                output[t] = k_iv_map[max(k)]
+                output[t] = t*k_iv_map[max(k)]**2
                 continue 
+            #print(k), print(iv)
             interp = scipy.interpolate.interp1d(np.array(k), np.array(iv))
-            output[t] = t*(interp(0).item())**2
+            output[t] = t*(interp(0).item()**2)
         return dict(sorted(output.items())) 
     
     def get_volatility_surface(self) -> VolatilitySurface: 
