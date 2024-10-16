@@ -117,7 +117,8 @@ class Position:
         if isinstance(self.instrument, PerpetualFuture):
             c = self.instrument.contract_size
             total_cash_flow = sum([t.number_contracts*c/t.traded_price for t in self.trades])
-            premium = -self.number_contracts*c/self.fifo_price 
+            if self.number_contracts == 0: premium = 0  
+            else: premium = -self.number_contracts*c/self.fifo_price 
         else: 
             total_cash_flow = sum([-t.number_contracts*t.traded_price for t in self.trades])
             premium = self.number_contracts*self.fifo_price
@@ -351,8 +352,8 @@ class Portfolio:
             n = position.number_contracts*i.contract_size
         fifo_price = position.fifo_price
         quote = self.market.get_quote(i.name)
-        if n<0: quoted_price = quote.order_book.best_ask
-        else: quoted_price = quote.order_book.best_bid
+        if n<0: quoted_price = quote.order_book.mark_price
+        else: quoted_price = quote.order_book.mark_price
         if quote.order_book.quote_currency != Currency('USD'):
             return n*(quoted_price-fifo_price)*spot_price
         else: return n*(quoted_price-fifo_price)

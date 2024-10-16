@@ -124,7 +124,7 @@ class Market:
         puts = list()
         mapped_quotes = dict()
         for e in self.option_expiries:
-            if e <= self.reference_time or e > self.reference_time+timedelta(days=80): continue
+            if e <= self.reference_time: continue
             opt_name = self.mapped_expiries_option_names[e]
             mapped_put_delta = {q.instrument_name: q.sensitivities.delta 
                                 for q in self.quotes 
@@ -180,7 +180,7 @@ class Market:
         return [o for o in self.options if o.name in filtered_names]
 
     def get_atm_factor(self) -> float: 
-        t_vec = [k for k in list(self.atmtvarmap.keys()) if k <=80/365]
+        t_vec = [k for k in list(self.atmtvarmap.keys())]
         v = [self.atmtvarmap[t] for t in t_vec]
         l = scipy.stats.linregress(np.array(t_vec), np.array(v))
         return np.sqrt(l.slope.item())

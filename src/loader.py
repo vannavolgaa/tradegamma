@@ -302,6 +302,22 @@ class MarketLoader:
         markprices = [fq.order_book.mark_price for fq in fquotes]
         dates = [fq.reference_time for fq in fquotes]
         return TimeSerie(dict(zip(dates,markprices)))
+    
+    def get_instrument_quote_price_time_serie(
+            self, 
+            instrument_name: str, 
+            reference_time: datetime, 
+            time_delta:timedelta, 
+            quote_type: str = 'bid') -> TimeSerie: 
+        start_date = reference_time - time_delta
+        quotes = [q for q in self.quotes if q.instrument_name==instrument_name]
+        fquotes = [q for q in quotes 
+                   if q.reference_time >= start_date 
+                   and q.reference_time<=reference_time]
+        if quote_type == 'bid': prices = [fq.order_book.best_bid for fq in fquotes]
+        else: prices = [fq.order_book.best_ask for fq in fquotes]
+        dates = [fq.reference_time for fq in fquotes]
+        return TimeSerie(dict(zip(dates,prices)))
 
     def get_risk_factor_atm_factor_time_serie(
             self, 

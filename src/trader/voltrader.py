@@ -5,7 +5,8 @@ from datetime import timedelta, datetime
 from src.portfolio import (
     Trade, 
     CashFlow, 
-    Book)
+    Book, 
+    Portfolio)
 from src.instruments import Option, Currency
 from src.market import Market
 from src.quant.timeserie import TimeSerie
@@ -54,8 +55,8 @@ class VolatilityBlockTrade:
             realised_volatility:float) -> float: 
         theta_gamma_appprox = self.pnlengine.proxy_theta_gamma_pnl(
             realised_volatility,dt) 
-        vega = self.pnlengine.vega_pnl(iv_relative_change)
-        fee = self.pnlengine.delta_hedge_fee() #+self.get_trades_usd_fee()
+        vega=0#vega = self.pnlengine.vega_pnl(iv_relative_change)
+        fee = 0 #self.pnlengine.delta_hedge_fee() #+self.get_trades_usd_fee()
         return theta_gamma_appprox+vega+fee
 
 def generate_block_trade(leg1:Option, leg2:Option, 
@@ -132,15 +133,18 @@ class VolatilityTraderParameters(TraderParameters):
     perpetual_mark_price_ts : TimeSerie
     atm_factor_ts : TimeSerie
     dt : float = 1/(365*24)
+    stop_loss : float = -0.2
+    stop_profit : float = 1
+    max_spread_to_close : float = 0.1
 
 class VolatilityTrader(Trader): 
     def __init__(self, parameters : VolatilityTraderParameters): 
         self.parameters = parameters
-        self.book = self.parameters.book
         self.market = self.parameters.market
+        self.book = self.parameters.book
         self.iv_rchange_forecast = self.get_iv_relative_change_forecast()
         self.revol_forecast = self.get_realised_vol_forecast()
-    
+
     def get_iv_relative_change_forecast(self) -> float: 
         ts = self.parameters.atm_factor_ts
         ar = ts.ar_1lag_fit()
@@ -186,10 +190,99 @@ class VolatilityTrader(Trader):
             wbt = [b for b in bt if b._id==winner_id][0]
             return wbt.trades 
         else: return list()
+    
+    def close_existing_trades(self) -> List[Trade]: 
+        output = list()
+        for p in self.book.to_positions(): 
+            output = output + p.trades
+            if p.number_contracts!=0 and isinstance(p.instrument, Option):
+                bt = VolatilityBlockTrade(p.trades, self.market)
+                pnl = bt.net_fee_usd_volatility_pnl(
+                    self.parameters.dt,
+                    self.iv_rchange_forecast, 
+                    self.revol_forecast
+                )
+                fee = bt.get_trades_usd_fee()
+                quote = self.market.get_quote(p.instrument.name) 
+                markprice = quote.order_book.mark_price
+                if p.number_contracts<0: 
+                    price = quote.order_book.best_ask 
+                else: price = quote.order_book.best_bid 
+                n = p.number_contracts*p.instrument.contract_size
+                pft = Portfolio([p], self.market, self.book.initial_deposit)
+                if pnl < 0 and pft.get_usd_total_pnl()>0: 
+                    quote = self.market.get_quote(p.instrument.name) 
+                    if p.number_contracts<0: price = quote.order_book.best_ask 
+                    else: price = quote.order_book.best_bid 
+                    if p.instrument.name == 'BTC-3FEB23-24000-P': print(price)
+                    trade = p.get_settlement_trade(price, self.market.reference_time)
+                    output.append(trade)
+                else: continue
+        return output
+    
+    def close_existing_trades2(self) -> list[Trade]: 
+        output = list()
+        for p in self.book.to_positions(): 
+            output = output + p.trades
+            if p.number_contracts!=0 and isinstance(p.instrument, Option):
+                quote = self.market.get_quote(p.instrument.name) 
+                bt = VolatilityBlockTrade(p.trades, self.market)
+                pnl = bt.net_fee_usd_volatility_pnl(
+                    self.parameters.dt,
+                    self.iv_rchange_forecast, 
+                    self.revol_forecast
+                )
+                fifo = p.fifo_price
+                mark = quote.order_book.mark_price
+                bid = quote.order_book.best_bid 
+                ask = quote.order_book.best_ask
+                perf = np.sign(p.number_contracts)*(mark-fifo)/fifo
+                try: bid_spread = (bid-mark)/mark
+                except ZeroDivisionError as e: bid_spread = -np.inf
+                try: ask_spread = (ask-mark)/mark
+                except ZeroDivisionError as e: ask_spread = np.inf
+                if pnl>0: 
+                    cond_sp = perf<self.parameters.stop_profit
+                    if cond_sp: continue
+                    else: 
+                        if np.sign(p.number_contracts)==-1: 
+                            if ask_spread>self.parameters.max_spread_to_close:
+                                continue 
+                            else: 
+                                trade = p.get_settlement_trade(
+                                    ask, self.market.reference_time) 
+                                output.append(trade)
+                        else: 
+                            if bid_spread<-self.parameters.max_spread_to_close:
+                                continue 
+                            else: 
+                                trade = p.get_settlement_trade(
+                                    bid, self.market.reference_time) 
+                                output.append(trade)  
+                else: 
+                    #cond_sl = perf>self.parameters.stop_loss
+                    #cond_sp = perf<self.parameters.stop_profit
+                    #if cond_sl and cond_sp: continue
+                    #else: 
+                    if np.sign(p.number_contracts)==-1: 
+                        if ask_spread>self.parameters.max_spread_to_close:
+                            continue 
+                        else: 
+                            trade = p.get_settlement_trade(
+                                ask, self.market.reference_time) 
+                            output.append(trade)
+                    else: 
+                        if bid_spread<-self.parameters.max_spread_to_close:
+                            continue 
+                        else: 
+                            trade = p.get_settlement_trade(
+                                bid, self.market.reference_time) 
+                            output.append(trade)  
+        return output
 
     def update_book(self) -> Book:
         trades = self.get_trades()
-        book_trades = self.book.trades
+        book_trades = self.close_existing_trades2()
         updated_trades = trades+book_trades
         updated_book = Book(updated_trades, self.book.initial_deposit)
         pft = updated_book.to_portfolio(self.market)
@@ -198,7 +291,12 @@ class VolatilityTrader(Trader):
         updated_book = Book(updated_trades, self.book.initial_deposit)
         pft = updated_book.to_portfolio(self.market)
         if pft.is_cash_sufficient(): return updated_book
-        else: return self.book
+        else: 
+            updated_book = Book(book_trades, self.book.initial_deposit)
+            pft = updated_book.to_portfolio(self.market)
+            delta_hedging_trade = pft.perpetual_delta_hedging_trade()
+            book_trades.append(delta_hedging_trade)
+            return Book(book_trades, self.book.initial_deposit)
 
 @dataclass
 class BacktestVolatilityTraderInput(BacktestInput): 
@@ -206,12 +304,16 @@ class BacktestVolatilityTraderInput(BacktestInput):
     perpetual_mark_price_dt : timedelta = timedelta(days=30)
     atm_factor_dt : timedelta = timedelta(days=30)
     dt : float = 1/(365*24)
+    stop_loss : float = -0.2
+    stop_profit : float = 1
+    max_spread_to_close : float = 0.1
 
 class BacktestVolatilityTrader(BacktestTrader): 
     def __init__(self, inputdata: BacktestVolatilityTraderInput):
         self.parameters = inputdata
         super().__init__(inputdata)
-        
+    
+    
     def get_date_vector_for_backtest(self, dates:List[datetime]) -> List[datetime]: 
         min_date = min(dates)
         perp_dt = self.parameters.perpetual_mark_price_dt

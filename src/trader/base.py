@@ -145,7 +145,7 @@ class BacktestOutput:
                 f, fdt = d['future_price'], ddt['future_price']
                 f_change, iv_change = fdt-f, ivdt-iv
                 f_rchange = f_change/f 
-                re = (f_rchange**2)/dt
+                re = np.sqrt((f_rchange**2)/dt)
                 theta_pnl = theta_pnl+d['theta']*dt
                 vega_pnl  = vega_pnl+d['vega']*iv_change
                 delta_pnl = delta_pnl+d['delta']*f_change
