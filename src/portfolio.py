@@ -165,7 +165,6 @@ def trades_to_positions(trades : List[Trade]) -> List[Position]:
     return output
 
 def settle_expired_position(position:Position, market:Market) -> Position:
-    if position.number_contracts == 0: return position
     spot_quote = market.get_quote(market.spot.name)
     i = position.instrument
     S = spot_quote.order_book.mark_price 

@@ -17,7 +17,8 @@ class SSVI:
         t_vec = np.array(list(self.atmtvarmap.keys()))
         v = np.array(list(self.atmtvarmap.values()))
         atminterp = scipy.interpolate.interp1d(t_vec, v)
-        return atminterp(t)
+        max_t = max(list(self.atmtvarmap.keys()))
+        return atminterp(np.minimum(t, max_t))
 
     def parametrization(self, t:np.array) -> np.array: 
         atmtvar = self.atm_total_variance(t)
@@ -73,6 +74,7 @@ class SSVI:
         if is_increasing and cond: return 0
         else: return 1
 
+    
 
 class CalibrateSSVI: 
     def __init__(self, 

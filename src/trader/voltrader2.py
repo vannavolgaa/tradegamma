@@ -107,6 +107,13 @@ class VolatilityBlockTrade:
         return self.get_trades_usd_fee() + self.get_initial_margin_usd() \
             - self.get_usd_premium() + self.get_usd_spread()
 
+    def get_theta_gamma_pnl(self,dt:float,realised_volatility:float)->float:
+        return self.pnlengine.proxy_theta_gamma_pnl(
+            realised_volatility,dt)  
+
+    def get_vega_pnl(self,dt:float,realised_volatility:float)->float:
+        pass 
+
     def get_volatility_pnl(
             self, 
             dt:float, 
@@ -114,8 +121,8 @@ class VolatilityBlockTrade:
             realised_volatility:float) -> float: 
         theta_gamma_appprox = self.pnlengine.proxy_theta_gamma_pnl(
             realised_volatility,dt) 
-        vega = self.pnlengine.vega_pnl(ssvi_forecast)
-        return theta_gamma_appprox+vega
+        #vega = self.pnlengine.vega_pnl(ssvi_forecast)
+        return theta_gamma_appprox#+vega
 
     def get_roi(
             self, 
@@ -126,9 +133,19 @@ class VolatilityBlockTrade:
         capital_requirement = max(self.usd_capital_requirement(), 0.00000001)
         return vol_pnl/capital_requirement
 
-def generate_block_trade(leg1:Option, leg2:Option, 
-                         same_direction: bool, market:Market, 
-                         exposure: float) -> List[VolatilityBlockTrade]: 
+    def get_number_contracts_to_trade(self, q:float) -> float: 
+        output = list()
+        for t in self.trades: 
+            quote = self.market.get_quote(t.instrument.name)
+            if q < 0: q = min(q, quote.order_book.best_bid_size)
+            else: q = min(q, quote.order_book.best_ask_size)
+            output.append(q)
+        return min(output)
+        
+def generate_block_trade(leg1:Option, 
+                         leg2:Option, 
+                         same_direction: bool, 
+                         market:Market) -> List[VolatilityBlockTrade]: 
     atm_chain = market.atm_chain
     quote1 = atm_chain.mapped_quotes[leg1.name]
     quote2 = atm_chain.mapped_quotes[leg2.name]
@@ -140,10 +157,10 @@ def generate_block_trade(leg1:Option, leg2:Option,
                     'currency':quote2.order_book.quote_currency}
     fdatalong, fdatashort = firstdata.copy(), firstdata.copy()
     sdatalong, sdatashort = seconddata.copy(), seconddata.copy()
-    fdatalong['number_contracts']=min(quote1.order_book.best_ask_size,exposure)
-    sdatalong['number_contracts']=min(quote2.order_book.best_ask_size,exposure)
-    fdatashort['number_contracts']=-min(quote1.order_book.best_bid_size,exposure)
-    sdatashort['number_contracts']=-min(quote2.order_book.best_bid_size,exposure)
+    fdatalong['number_contracts']=1
+    sdatalong['number_contracts']=1
+    fdatashort['number_contracts']=-1
+    sdatashort['number_contracts']=-1
     fdatalong['traded_price'] = quote1.order_book.best_ask
     sdatalong['traded_price'] = quote2.order_book.best_ask
     fdatashort['traded_price'] = quote1.order_book.best_bid
@@ -160,7 +177,7 @@ def generate_block_trade(leg1:Option, leg2:Option,
         bt2 = VolatilityBlockTrade([fshorttrade, slongtrade], market)
     return [bt1, bt2]
 
-def get_atm_calendar_spread(market: Market, exposure: float, call=True) -> List[VolatilityBlockTrade]: 
+def get_atm_calendar_spread(market: Market, call=True) -> List[VolatilityBlockTrade]: 
     atm_chain = market.atm_chain
     output = list()
     if call: options = atm_chain.calls
@@ -178,27 +195,45 @@ def get_atm_calendar_spread(market: Market, exposure: float, call=True) -> List[
     for k in list(mapped_cs.keys()):
         opt1, opt2 = mapped_cs[k][0], mapped_cs[k][1]
         output = output + generate_block_trade(
-            opt1, opt2, False, market, exposure)
+            opt1, opt2, False, market)
     return output
 
-def get_atm_straddle(market: Market, exposure: float) -> List[VolatilityBlockTrade]:
+def get_atm_straddle(market: Market) -> List[VolatilityBlockTrade]:
     output = list()
     for c in market.atm_chain.calls: 
         for p in market.atm_chain.puts: 
-            output = output + generate_block_trade(
-                c, p, True,market, exposure)
+            output = output + generate_block_trade(c,p,True,market)
     return output 
 
-def get_atm_block_trades(market: Market, exposure: float) -> List[VolatilityBlockTrade]: 
-    return get_atm_straddle(market,exposure)\
-        +get_atm_calendar_spread(market, exposure,True)\
-        +get_atm_calendar_spread(market, exposure,False)
+def get_atm_block_trades(market: Market) -> List[VolatilityBlockTrade]: 
+    return get_atm_straddle(market)\
+        +get_atm_calendar_spread(market,True)\
+        +get_atm_calendar_spread(market,False)
+
+def get_ordered_mapped_gamma_roi(
+        bt: List[VolatilityBlockTrade], 
+        rvol_forecast: float, 
+        dt: float) -> dict[str, float]: 
+    output = dict()
+    for b in bt: 
+        pnl = b.pnlengine.proxy_theta_gamma_pnl(rvol_forecast, dt)
+        if pnl > 0: output[b._id] = pnl
+        else: continue
+    return dict(sorted(output.items(),key=lambda item: item[1],reverse=True))
+
+def get_ordered_mapped_vega_roi(
+        bt: List[VolatilityBlockTrade], 
+        ssvi_forecast: SSVI) -> dict[str, float]: 
+    output = dict()
+    for b in bt: 
+        pnl = b.pnlengine.vega_pnl(ssvi_forecast)
+        if pnl > 0:output[b._id] = pnl
+        else: continue
+    return dict(sorted(output.items(),key=lambda item: item[1],reverse=True))
 
 @dataclass
 class VolatilityTraderModelInput: 
     perp_mark_price : TimeSerie
-    perp_volume : TimeSerie
-    perp_open_interest : TimeSerie
     ssvi_rho : TimeSerie
     ssvi_gamma : TimeSerie
     ssvi_nu : TimeSerie
@@ -208,8 +243,6 @@ class VolatilityTraderModelInput:
 class VolatilityTraderModel: 
     def __init__(self, inputdata: VolatilityTraderModelInput): 
         self.perp_mark_price = inputdata.perp_mark_price
-        self.perp_volume = inputdata.perp_volume
-        self.perp_open_interest = inputdata.perp_open_interest
         self.ssvi_rho = inputdata.ssvi_rho
         self.ssvi_gamma = inputdata.ssvi_gamma
         self.ssvi_nu = inputdata.ssvi_nu
@@ -252,8 +285,6 @@ class VolatilityTraderModel:
     
     def rvol_compute_factor_data(self) -> List[TimeSerie]: 
         mpsqld = get_square_log_difference_time_serie(self.perp_mark_price)
-        vld = get_log_difference_time_serie(self.perp_volume)
-        oild = get_log_difference_time_serie(self.perp_open_interest)
         rv = get_rolling_realised_vol_time_series(
             mpsqld, 
             [timedelta(hours=24), 
@@ -261,23 +292,9 @@ class VolatilityTraderModel:
             timedelta(hours=6), 
             timedelta(hours=3), 
             timedelta(hours=1)])
-        vldm = get_rolling_mean_time_series(
-            vld, 
-            [timedelta(hours=6), 
-            timedelta(hours=3), 
-            timedelta(hours=1)]
-        )
-        oildm = get_rolling_mean_time_series(
-            oild, 
-            [timedelta(hours=6), 
-            timedelta(hours=3), 
-            timedelta(hours=1)]
-        )
         rvs = get_spread_time_series(rv)
-        vldms = get_spread_time_series(vldm)
-        oildms = get_spread_time_series(oildm)
         #return get_z_score_time_series(rvs)
-        return rvs+vldms+oildms
+        return rvs
     
     @staticmethod
     def ssvi_param_compute_factor_data(data:TimeSerie) -> List[TimeSerie]: 
@@ -348,15 +365,17 @@ class VolatilityTraderModel:
 
 @dataclass
 class VolatilityTraderParameters(TraderParameters): 
-    exposure : float 
     model_input : VolatilityTraderModelInput
+    gamma_pnl_target_factor : float = 0.001
+    vega_pnl_target_factor : float = 0.0005
     dt : float = 1/(365*24)
-    max_spread_to_close : float = 0.1
-    max_local_exposure : float = 0.1
-
+    
     def __post_init__(self):
         self.book = settle_book_expired_positions(self.book, self.market)
         self.trader_model = VolatilityTraderModel(self.model_input)
+        self.portfolio = self.book.to_portfolio(self.market)
+        self.poftvalue = self.portfolio.get_usd_total_value()
+        
 
 class VolatilityTrader(Trader): 
     def __init__(self, parameters : VolatilityTraderParameters): 
@@ -365,139 +384,82 @@ class VolatilityTrader(Trader):
         self.book = self.parameters.book
         self.ssvi_forecast = self.parameters.trader_model.ssvi_forecast()
         self.rvol_forecast = self.parameters.trader_model.rvol_forecast()
+        self.atm_bt = get_atm_block_trades(self.market)
+        self.mapped_atm_bt = {b._id:b for b in self.atm_bt}
+        self.gamma_trades = self.get_gamma_trades()
+        self.vega_trades = self.get_vega_trades()
 
-    def check_max_local_exposure(self, trades: List[Trade]) -> bool: 
-        positions = self.book.to_positions()
-        mapped_exposure_by_name = {p.instrument.name:p.number_contracts 
-                                   for p in positions} 
-        i = 0
-        for t in trades: 
-            if t.instrument.name in list(mapped_exposure_by_name.keys()):
-                act_exposure = mapped_exposure_by_name[t.instrument.name]
-            else: continue
-            new_exposure = act_exposure+t.number_contracts
-            if abs(new_exposure)>self.parameters.max_local_exposure:
-                i = i + 1 
-            else: continue
-        if i>0: return True
-        else: return False
-        
-    def get_trades(self) -> List[Trade]: 
-        bt = get_atm_block_trades(self.parameters.market, self.parameters.exposure)
-        mapped_roi = dict()
-        for b in bt: 
-            pnl = b.get_volatility_pnl(
-                self.parameters.dt,
-                self.ssvi_forecast, 
-                self.rvol_forecast
-            )
-            if pnl > 0: 
-                mapped_roi[b._id] = pnl/b.usd_capital_requirement()
-            else: continue
-        if len(mapped_roi)==0: return list()
-        else: 
-            mapped_roi = dict(sorted(mapped_roi.items(), 
-                                    key=lambda item: item[1],
-                                    reverse=True))
-            i = 0 
-            winner_id = list(mapped_roi.keys())[i]
-            wbt = [b for b in bt if b._id==winner_id][0]
-            if self.check_max_local_exposure(wbt.trades): return list()
-            else: 
-                winner_id = list(mapped_roi.keys())[i]
-                wbt = [b for b in bt if b._id==winner_id][0]
-                return wbt.trades 
+    def get_gamma_pnl_target(self) -> float: 
+        pftvalue = self.book.initial_deposit.amount
+        gamma_pnl_target = self.parameters.gamma_pnl_target_factor*pftvalue
+        pnlengine = OptionPnlEngine(self.book, self.market)
+        pft_gamma_pnl = pnlengine.proxy_theta_gamma_pnl(
+            self.rvol_forecast, self.parameters.dt)
+        return max(gamma_pnl_target-pft_gamma_pnl,0)
     
-    def get_trades2(self) -> List[Trade]: 
-        bt = get_atm_block_trades(self.parameters.market, self.parameters.exposure)
-        mapped_roi = dict()
-        for b in bt: 
-            pnl = b.get_volatility_pnl(
-                self.parameters.dt,
-                self.ssvi_forecast, 
-                self.rvol_forecast
-            )
-            if pnl > 0: 
-                mapped_roi[b._id] = pnl/b.usd_capital_requirement()
-            else: continue
-        if len(mapped_roi)==0: return list()
-        else: 
-            mapped_roi = dict(sorted(mapped_roi.items(), 
-                                    key=lambda item: item[1],
-                                    reverse=True))
-            i = 0 
-            winner_id = list(mapped_roi.keys())[i]
-            wbt = [b for b in bt if b._id==winner_id][0]
-            while self.check_max_local_exposure(wbt.trades): 
-                i = i + 1
-                if i == len(mapped_roi): return list()
-                winner_id = list(mapped_roi.keys())[i]
-                wbt = [b for b in bt if b._id==winner_id][0]
-            return wbt.trades 
-
-    def close_existing_trades(self) -> list[Trade]: 
+    def get_vega_pnl_target(self) -> float: 
+        pftvalue = self.book.initial_deposit.amount
+        vega_pnl_target = self.parameters.vega_pnl_target_factor*pftvalue
+        pnlengine = OptionPnlEngine(self.book, self.market)
+        pft_vega_pnl = pnlengine.vega_pnl(self.ssvi_forecast)
+        return max(vega_pnl_target-pft_vega_pnl,0)
+    
+    def get_gamma_trades(self) -> List[Trade]: 
+        ref,dt = self.rvol_forecast, self.parameters.dt
+        mapped_roi = get_ordered_mapped_gamma_roi(self.atm_bt,ref,dt)
+        _ids = list(mapped_roi.keys())
+        target = self.get_gamma_pnl_target()
+        winner_bt = self.mapped_atm_bt[_ids[0]]
+        gamma_pnl = winner_bt.pnlengine.proxy_theta_gamma_pnl(ref,dt)
+        q = winner_bt.get_number_contracts_to_trade(target/gamma_pnl)
         output = list()
-        for p in self.book.to_positions(): 
-            output = output + p.trades
-            if p.number_contracts!=0 and isinstance(p.instrument, Option):
-                quote = self.market.get_quote(p.instrument.name) 
-                bt = VolatilityBlockTrade(p.trades, self.market)
-                pnl = bt.get_volatility_pnl(
-                    self.parameters.dt,
-                    self.ssvi_forecast, 
-                    self.rvol_forecast
-                )
-                mark = quote.order_book.mark_price
-                bid = quote.order_book.best_bid 
-                ask = quote.order_book.best_ask
-                try: bid_spread = (bid-mark)/mark
-                except ZeroDivisionError as e: bid_spread = -np.inf
-                try: ask_spread = (ask-mark)/mark
-                except ZeroDivisionError as e: ask_spread = np.inf
-                if pnl>0: continue 
-                else: 
-                    if np.sign(p.number_contracts)==-1: 
-                        if ask_spread>self.parameters.max_spread_to_close:
-                            continue 
-                        else: 
-                            trade = p.get_settlement_trade(
-                                ask, self.market.reference_time) 
-                            output.append(trade)
-                    else: 
-                        if bid_spread<-self.parameters.max_spread_to_close:
-                            continue 
-                        else: 
-                            trade = p.get_settlement_trade(
-                                bid, self.market.reference_time) 
-                            output.append(trade)  
-        return output
-
+        for t in winner_bt.trades: 
+            trade_dict = t.__dict__
+            trade_dict['number_contracts'] = q*t.number_contracts
+            output.append(Trade(**trade_dict))
+        return output 
+    
+    def get_vega_trades(self) -> List[Trade]: 
+        mapped_roi = get_ordered_mapped_vega_roi(self.atm_bt,self.ssvi_forecast)
+        _ids = list(mapped_roi.keys())
+        gammabt = VolatilityBlockTrade(self.gamma_trades,self.market)
+        gammabt_vegapnl = gammabt.pnlengine.vega_pnl(self.ssvi_forecast)
+        target = self.get_vega_pnl_target()-gammabt_vegapnl
+        winner_bt = self.mapped_atm_bt[_ids[0]]
+        vega_pnl = winner_bt.pnlengine.vega_pnl(self.ssvi_forecast)
+        q = winner_bt.get_number_contracts_to_trade(target/vega_pnl)
+        output = list()
+        for t in winner_bt.trades: 
+            trade_dict = t.__dict__
+            trade_dict['number_contracts'] = q*t.number_contracts
+            output.append(Trade(**trade_dict))
+        return output 
+        
     def update_book(self) -> Book:
-        trades = self.get_trades2()
-        book_trades = self.close_existing_trades()
-        updated_trades = trades+book_trades
-        updated_book = Book(updated_trades, self.book.initial_deposit)
+        trades = self.gamma_trades + self.vega_trades + self.book.trades
+        updated_book = Book(trades, self.book.initial_deposit)
         pft = updated_book.to_portfolio(self.market)
         delta_hedging_trade = pft.perpetual_delta_hedging_trade()
-        updated_trades.append(delta_hedging_trade)
-        updated_book = Book(updated_trades, self.book.initial_deposit)
+        trades.append(delta_hedging_trade)
+        updated_book = Book(trades, self.book.initial_deposit)
         pft = updated_book.to_portfolio(self.market)
         if pft.is_cash_sufficient(): return updated_book
         else: 
-            updated_book = Book(book_trades, self.book.initial_deposit)
-            pft = updated_book.to_portfolio(self.market)
+            trades = self.book.trades
+            pft = self.book.to_portfolio(self.market)
             delta_hedging_trade = pft.perpetual_delta_hedging_trade()
-            book_trades.append(delta_hedging_trade)
-            return Book(book_trades, self.book.initial_deposit)
+            trades.append(delta_hedging_trade)
+            return Book(trades, self.book.initial_deposit)
+
 
 @dataclass
 class BacktestVolatilityTraderInput(BacktestInput): 
-    exposure : float = 0.1
     time_serie_length : timedelta = timedelta(days=20)
     dt : float = 1/(365*24)
-    max_spread_to_close : float = 0.1
-    max_local_exposure : float = 0.1
+    gamma_pnl_target_factor : float = 0.001
+    vega_pnl_target_factor : float = 0.0005
     atm_t_vector = [0.05, 0.1, 0.33, 0.5, 1]
+
 
 class BacktestVolatilityTrader(BacktestTrader): 
     def __init__(self, inputdata: BacktestVolatilityTraderInput):
@@ -515,15 +477,13 @@ class BacktestVolatilityTrader(BacktestTrader):
         perp_name = rf.base_currency.code + '-PERPETUAL'
         dt = self.parameters.time_serie_length
         mp = ml.get_instrument_mark_price_time_serie(perp_name,rft,dt)
-        volume = ml.get_instrument_volumes_time_serie(perp_name,rft,dt)
-        oi = ml.get_instrument_open_interest_time_serie(perp_name,rft,dt)
         rho = ml.get_risk_factor_ssvi_rho_time_serie(ml.btcusd,rft,dt)
         _gamma = ml.get_risk_factor_ssvi_gamma_time_serie(ml.btcusd,rft,dt)
         nu = ml.get_risk_factor_ssvi_nu_time_serie(ml.btcusd,rft,dt)
         ssvi_atm_vol = dict()
         for t in self.parameters.atm_t_vector: 
             ssvi_atm_vol[t] = ml.get_risk_factor_atm_volatility(ml.btcusd,rft,dt,t)
-        return VolatilityTraderModelInput(mp,volume,oi,rho,_gamma,nu,ssvi_atm_vol)
+        return VolatilityTraderModelInput(mp,rho,_gamma,nu,ssvi_atm_vol)
     
     def update_book(self, reference_time: datetime, initial_book: Book) -> Book:
         market = [m for m in self.loader.markets 
@@ -532,10 +492,9 @@ class BacktestVolatilityTrader(BacktestTrader):
         traderparam = VolatilityTraderParameters(
             book = initial_book,
             market=market,
-            exposure=self.parameters.exposure,
             dt = self.parameters.dt, 
             model_input=self.get_model_input(reference_time), 
-            max_spread_to_close=self.parameters.max_spread_to_close, 
-            max_local_exposure=self.parameters.max_local_exposure)
+            gamma_pnl_target_factor=self.parameters.gamma_pnl_target_factor, 
+            vega_pnl_target_factor=self.parameters.vega_pnl_target_factor)
         trader = VolatilityTrader(traderparam)
         return trader.update_book()

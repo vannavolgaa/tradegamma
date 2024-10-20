@@ -18,6 +18,7 @@ from src.instruments import Option, Currency, Future, PerpetualFuture, Spot
 from src.market import Market 
 from src.loader import MarketLoader, update_market_loader, get_market_loader
 from src.quant.blackscholes import BlackScholes
+from src.quant.ssvi import SSVI
 
 
 class OptionPnlEngine: 
@@ -38,6 +39,8 @@ class OptionPnlEngine:
         theta = list()
         delta = list()
         vega = list()
+        strike = list()
+        t_vector = list()
         F = list()
         for p in self.positions: 
             if p.number_contracts == 0: continue
@@ -45,23 +48,28 @@ class OptionPnlEngine:
             i = p.instrument
             if not isinstance(i,Option): continue
             name = p.instrument.name
-            if p.number_contracts>=0: 
-                s=self.market.get_implied_volatility_quote(name,'ask')
-            else: 
-                s=self.market.get_implied_volatility_quote(name,'bid')
+            #if p.number_contracts>=0: 
+                #s=self.market.get_implied_volatility_quote(name,'ask')
+            #else: 
+                #s=self.market.get_implied_volatility_quote(name,'bid')
+            s=self.market.get_implied_volatility_quote(name,'mid')
             t = i.time_to_expiry(self.market.reference_time) 
+            t_vector.append(t)
             F.append(self.futts.future_price(t))
             sigma.append(s)
             delta.append(pftbis.sensitivities.delta)
             theta.append(pftbis.sensitivities.theta)
             gamma.append(pftbis.sensitivities.gamma)
             vega.append(pftbis.sensitivities.vega)
+            strike.append(p.instrument.strike)
+        self.t = np.array(t_vector)
         self.sigma = np.array(sigma)
         self.gamma = np.array(gamma)
         self.vega = np.array(vega)
         self.theta = np.array(theta)
         self.delta = np.array(delta)
         self.F = np.array(F)
+        self.K = np.array(strike)
 
     def proxy_theta_gamma_pnl(self, realised_volatility: float, dt:float) -> float:
         s, g, F = self.sigma, self.gamma, self.F
@@ -76,26 +84,18 @@ class OptionPnlEngine:
         spot_change = spot_relative_change*self.F
         return np.sum(.5*(spot_change**2)*self.gamma)
     
-    def vega_pnl(self, iv_relative_change:np.array) -> float: 
-        change_sigma = iv_relative_change*self.sigma
-        return np.sum(self.vega*change_sigma)
+    def vega_pnl(self, ssvi_forecast:SSVI) -> float:
+        k = np.log(self.K/self.F)
+        forecasted_sigma = ssvi_forecast.implied_volatility(k, self.t)
+        return np.sum(self.vega*(forecasted_sigma-self.sigma))
     
     def delta_pnl(self, spot_relative_change:float) -> float: 
         return np.sum(self.delta*spot_relative_change*self.F)
     
-    def delta_hedge_fee(self) -> float: 
-        fee = self.delta_hedge_trade.trade_fee()
-        spot_price = self.spot_quote.order_book.mid
-        if fee.currency == Currency('USD'): return fee.amount
-        else: return spot_price*fee.amount
-
 @dataclass
 class TraderParameters(ABC): 
     book : Book
     market : Market 
-
-    def __post_init__(self): 
-        self.book = settle_book_expired_positions(self.book, self.market)
 
 class Trader(ABC): 
     def __init__(self, parameters : TraderParameters): 
@@ -260,7 +260,7 @@ class BacktestTrader(ABC):
         spot = portfolio.spot_quote.order_book.mid
         futts = market.get_future_term_structure()
         for p in portfolio.positions: 
-            if isinstance(p.instrument, Option) and p.number_contracts!=0: 
+            if isinstance(p.instrument, Option): #and p.number_contracts!=0: 
                 i = p.instrument
                 if p.number_contracts!=0:
                     quote = market.get_quote(i.name)
@@ -369,6 +369,5 @@ class BacktestTrader(ABC):
             spot_position_report=pd.DataFrame(spot_position_report),
             last_book=book,
             last_portfolio=pft)
-        output.write_full_report()
         return output 
         

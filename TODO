@@ -1,10 +1,2 @@
-1) chnage Trader to Portfolio 
-- Risk Mangement of a List of Position 
-- - Margin 
-- - Sensitivities 
-- - Pricing 
-- - Mark Pricing 
-- - Delta Hedging Trade 
-
-2) Create trader.py -> Handle Cash Flow and generate trades from strategy 
-
+1) do not accumulate position on one option 
+2) close existing trade : review it 

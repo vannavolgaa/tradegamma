@@ -332,6 +332,92 @@ class MarketLoader:
                 if m.risk_factor == risk_factor: 
                     output[mdate] = m.atm_factor
         return TimeSerie(output)
+    
+    def get_risk_factor_ssvi_rho_time_serie(
+            self, 
+            risk_factor: RiskFactor, 
+            reference_time: datetime, 
+            time_delta:timedelta) -> TimeSerie: 
+        start_date = reference_time - time_delta
+        output = dict()
+        for m in self.markets: 
+            mdate = m.reference_time
+            if mdate>=start_date and mdate<=reference_time: 
+                if m.risk_factor == risk_factor: 
+                    output[mdate] = m.volatility_surface.ssvi.rho
+        return TimeSerie(output)
+    
+    def get_risk_factor_ssvi_gamma_time_serie(
+            self, 
+            risk_factor: RiskFactor, 
+            reference_time: datetime, 
+            time_delta:timedelta) -> TimeSerie: 
+        start_date = reference_time - time_delta
+        output = dict()
+        for m in self.markets: 
+            mdate = m.reference_time
+            if mdate>=start_date and mdate<=reference_time: 
+                if m.risk_factor == risk_factor: 
+                    output[mdate] = m.volatility_surface.ssvi._gamma
+        return TimeSerie(output)
+
+    def get_risk_factor_ssvi_nu_time_serie(
+            self, 
+            risk_factor: RiskFactor, 
+            reference_time: datetime, 
+            time_delta:timedelta) -> TimeSerie: 
+        start_date = reference_time - time_delta
+        output = dict()
+        for m in self.markets: 
+            mdate = m.reference_time
+            if mdate>=start_date and mdate<=reference_time: 
+                if m.risk_factor == risk_factor: 
+                    output[mdate] = m.volatility_surface.ssvi.nu
+        return TimeSerie(output)
+    
+    def get_instrument_open_interest_time_serie(
+            self, 
+            instrument_name: str, 
+            reference_time: datetime, 
+            time_delta:timedelta) -> TimeSerie: 
+        start_date = reference_time - time_delta
+        quotes = [q for q in self.quotes if q.instrument_name==instrument_name]
+        fquotes = [q for q in quotes 
+                   if q.reference_time >= start_date 
+                   and q.reference_time<=reference_time]
+        oi = [fq.open_interest for fq in fquotes]
+        dates = [fq.reference_time for fq in fquotes]
+        return TimeSerie(dict(zip(dates,oi)))
+    
+    def get_instrument_volumes_time_serie(
+            self, 
+            instrument_name: str, 
+            reference_time: datetime, 
+            time_delta:timedelta) -> TimeSerie: 
+        start_date = reference_time - time_delta
+        quotes = [q for q in self.quotes if q.instrument_name==instrument_name]
+        fquotes = [q for q in quotes 
+                   if q.reference_time >= start_date 
+                   and q.reference_time<=reference_time]
+        volumes = [fq.volume_usd for fq in fquotes]
+        dates = [fq.reference_time for fq in fquotes]
+        return TimeSerie(dict(zip(dates,volumes)))
+    
+
+    def get_risk_factor_atm_volatility(self, 
+            risk_factor: RiskFactor, 
+            reference_time: datetime, 
+            time_delta:timedelta, 
+            t : float) -> TimeSerie: 
+        start_date = reference_time - time_delta
+        output = dict()
+        for m in self.markets: 
+            mdate = m.reference_time
+            if mdate>=start_date and mdate<=reference_time: 
+                if m.risk_factor == risk_factor: 
+                    ssvi =  m.volatility_surface.ssvi
+                    output[mdate] = ssvi.implied_volatility(k=0,t=t)
+        return TimeSerie(output)
         
 def get_market_loader() -> MarketLoader: 
     with open('data/market_loader_object.pkl', 'rb') as inp:
